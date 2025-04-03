@@ -29,14 +29,15 @@ function M.foldFunctionsAndMethods()
 	local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
 	if not ok then return end
 
-	-- Create folds
-	for _, node, _ in query:iter_captures(root, buf, 0, -1) do
+	vim.opt.lazyredraw = false
+	for _, node, _ in query:iter_captures(root, buf, 0, - 1) do
 		local startRow, _, endRow, _ = node:range()
 		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
 	end
 
 	vim.schedule(function ()
 		vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
+		vim.opt.lazyredraw = true
 	end)
 end
 
@@ -77,12 +78,15 @@ function M.foldAround()
 
 	for _, node, _ in query:iter_captures(root, buf, query_start, query_end) do
 		local startRow, _, endRow, _ = node:range() -- startRow & endRow are 0-indexed
+		if startRow < line and endRow > line - 2 then
+			goto continue
+		end
 		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+		::continue::
 	end
 
 	vim.schedule(function ()
 		vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
-		vim.cmd("silent! normal! zo")
 		vim.opt.lazyredraw = true
 	end)
 end
@@ -93,8 +97,8 @@ end
 
 vim.api.nvim_create_autocmd("BufReadPre", {
 	callback = function ()
+		vim.cmd("normal! zR")
 		vim.schedule(function ()
-			vim.cmd("normal! zR")
 			M.foldFunctionsAndMethods()
 		end)
 	end
@@ -103,11 +107,9 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 vim.api.nvim_create_autocmd("CursorMoved", {
 	callback = function()
 		vim.schedule(function ()
-			if vim.api.nvim_get_mode().mode ~= "n" then
-				return
+			if vim.api.nvim_get_mode().mode == "n" then
+				M.foldAround()
 			end
-
-			M.foldAround()
 		end)
 	end,
 })
