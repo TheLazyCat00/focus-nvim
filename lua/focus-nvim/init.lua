@@ -2,12 +2,11 @@ local defaults = require("focus-nvim.defaults")
 local M = {}
 
 local config
+local originalFoldmethod
 
 function M.foldFunctionsAndMethods()
 	local buf = vim.api.nvim_get_current_buf()
 	local win = vim.api.nvim_get_current_win()
-
-	local originalFoldmethod = vim.api.nvim_get_option_value("foldmethod", { win = win })
 
 	vim.api.nvim_set_option_value("foldmethod", "manual", { win = win })
 
@@ -47,7 +46,6 @@ function M.foldAround()
 	local cursor = vim.api.nvim_win_get_cursor(win)
 	local line = cursor[1]  -- 1-indexed
 
-	local originalFoldmethod = vim.api.nvim_get_option_value("foldmethod", { win = win })
 	vim.api.nvim_set_option_value("foldmethod", "manual", { win = win })
 
 	local ft = vim.bo.filetype
@@ -97,6 +95,8 @@ end
 
 vim.api.nvim_create_autocmd("BufReadPre", {
 	callback = function ()
+		local win = vim.api.nvim_get_current_win()
+		originalFoldmethod = vim.api.nvim_get_option_value("foldmethod", { win = win })
 		vim.cmd("normal! zR")
 		vim.schedule(function ()
 			M.foldFunctionsAndMethods()
