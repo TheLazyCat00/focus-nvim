@@ -34,9 +34,7 @@ function M.foldFunctionsAndMethods()
 		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
 	end
 
-	vim.schedule(function ()
-		vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
-	end)
+	vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
 end
 
 function M.foldAround()
@@ -79,9 +77,7 @@ function M.foldAround()
 	end
 
 	lastLine = line
-	vim.schedule(function ()
-		vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
-	end)
+	vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
 end
 
 function M.setup(opts)
