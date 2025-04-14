@@ -76,7 +76,7 @@ function M.foldAround()
 
 	for _, node, _ in query:iter_captures(root, buf, query_start, query_end) do
 		local startRow, _, endRow, _ = node:range() -- startRow & endRow are 0-indexed
-		if startRow < line and endRow > line - 2 then
+		if startRow < line < endRow + 2 then
 			goto continue
 		end
 		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
