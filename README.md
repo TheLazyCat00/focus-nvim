@@ -32,13 +32,6 @@ focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes
         -- fallback for when the language is not set in languages
         -- NOTE: also set a capture group here
         fallback = "(function_definition) @func",
-
-        -- the range to check for closing folds when the cursor is moved
-        -- lower values = faster, but high values shouldn't be a problem
-        -- it's quite performant
-        -- set this to the most lines you'll ever be jumping
-        -- so half screen for example: 30
-        checkingRange = 20
     },
 }
 ```
@@ -47,7 +40,6 @@ focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes
 
 - **languages:** A table associating filetypes with Treesitter queries for identifying foldable code blocks.
 - **fallback:** A fallback Treesitter query if no language-specific option exists.
-- **checkingRange:** The number of lines around the cursor to consider when applying folds.
 
 ## Usage
 
