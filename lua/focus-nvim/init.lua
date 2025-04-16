@@ -80,7 +80,7 @@ local function updateFoldDiagnostics()
 	end
 end
 
-function M.foldFunctionsAndMethods()
+function M.foldAll()
 	local buf = vim.api.nvim_get_current_buf()
 	local ft = vim.bo.filetype
 	local queryStr
@@ -142,9 +142,7 @@ function M.foldAround()
 			goto continue
 		end
 
-		if vim.fn.foldclosed(lastLine) == - 1 then
-			vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
-		end
+		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
 		::continue::
 	end
 
@@ -172,7 +170,7 @@ vim.api.nvim_create_autocmd("UIEnter", {
 vim.api.nvim_create_autocmd("BufEnter", {
 	callback = function ()
 		vim.cmd("normal! zR")
-		vim.schedule(M.foldFunctionsAndMethods)
+		M.foldAll()
 	end
 })
 
