@@ -141,7 +141,10 @@ function M.foldAround()
 		if startRow < line and line < endRow + 2 then
 			goto continue
 		end
-		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+
+		if vim.fn.foldclosed(lastLine) == - 1 then
+			vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+		end
 		::continue::
 	end
 
