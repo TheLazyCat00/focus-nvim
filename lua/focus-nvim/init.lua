@@ -86,32 +86,32 @@ function M.foldFunctionsAndMethods()
 	local win = vim.api.nvim_get_current_win()
 
 	vim.api.nvim_set_option_value("foldmethod", "manual", { win = win })
-	vim.schedule(function ()
-		local ft = vim.bo.filetype
-		local queryStr
-		if config.languages[ft] then
-			queryStr = config.languages[ft]
-		else
-			queryStr = config.fallback
-		end
 
-		local status, parser = pcall(vim.treesitter.get_parser, buf, ft)
-		if not status then return end
+	local ft = vim.bo.filetype
+	local queryStr
+	if config.languages[ft] then
+		queryStr = config.languages[ft]
+	else
+		queryStr = config.fallback
+	end
 
-		local tree = parser:parse()[1]
-		local root = tree:root()
+	local status, parser = pcall(vim.treesitter.get_parser, buf, ft)
+	if not status then return end
+
+	local tree = parser:parse()[1]
+	local root = tree:root()
 
 
-		local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
-		if not ok then return end
+	local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
+	if not ok then return end
 
-		for _, node, _ in query:iter_captures(root, buf, 0, - 1) do
-			local startRow, _, endRow, _ = node:range()
-			vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
-		end
+	for _, node, _ in query:iter_captures(root, buf, 0, - 1) do
+		local startRow, _, endRow, _ = node:range()
+		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+	end
 
-		vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
-	end)
+	vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
+	updateFoldDiagnostics()
 end
 
 function M.foldAround()
@@ -126,35 +126,36 @@ function M.foldAround()
 	end
 
 	vim.api.nvim_set_option_value("foldmethod", "manual", { win = win })
-	vim.schedule(function ()
-		local ft = vim.bo.filetype
-		local queryStr
-		if config.languages[ft] then
-			queryStr = config.languages[ft]
-		else
-			queryStr = config.fallback
+
+	local ft = vim.bo.filetype
+	local queryStr
+	if config.languages[ft] then
+		queryStr = config.languages[ft]
+	else
+		queryStr = config.fallback
+	end
+
+	local status, parser = pcall(vim.treesitter.get_parser, buf, ft)
+	if not status then return end
+
+	local tree = parser:parse()[1]
+	local root = tree:root()
+
+	local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
+	if not ok then return end
+
+	for _, node, _ in query:iter_captures(root, buf, lastLine - 1, lastLine) do
+		local startRow, _, endRow, _ = node:range() -- startRow & endRow are 0-indexed
+		if startRow < line and line < endRow + 2 then
+			goto continue
 		end
+		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+		::continue::
+	end
 
-		local status, parser = pcall(vim.treesitter.get_parser, buf, ft)
-		if not status then return end
-
-		local tree = parser:parse()[1]
-		local root = tree:root()
-
-		local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
-		if not ok then return end
-
-		for _, node, _ in query:iter_captures(root, buf, lastLine - 1, lastLine) do
-			local startRow, _, endRow, _ = node:range() -- startRow & endRow are 0-indexed
-			if startRow < line and line < endRow + 2 then
-				goto continue
-			end
-			vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
-			::continue::
-		end
-		lastLine = line
-		vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
-	end)
+	lastLine = line
+	vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
+	updateFoldDiagnostics()
 end
 
 function M.setup(opts)
@@ -174,7 +175,7 @@ vim.api.nvim_create_autocmd("BufReadPre", {
 	end
 })
 
-vim.api.nvim_create_autocmd("BufWinEnter", {
+vim.api.nvim_create_autocmd("BufEnter", {
 	callback = function ()
 		vim.cmd("normal! zR")
 		vim.schedule(function ()
@@ -185,11 +186,11 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
 
 vim.api.nvim_create_autocmd("CursorMoved", {
 	callback = function()
-		vim.schedule(function ()
-			if vim.api.nvim_get_mode().mode == "n" then
+		if vim.api.nvim_get_mode().mode == "n" then
+			vim.schedule(function ()
 				M.foldAround()
-			end
-		end)
+			end)
+		end
 	end,
 })
 
