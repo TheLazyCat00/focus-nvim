@@ -2,7 +2,6 @@ local defaults = require("focus-nvim.defaults")
 local M = {}
 
 local origHandler = vim.lsp.handlers["textDocument/publishDiagnostics"]
-local originalFoldmethod
 local config
 local lastLine
 local diags
@@ -83,12 +82,9 @@ end
 
 function M.foldFunctionsAndMethods()
 	local buf = vim.api.nvim_get_current_buf()
-	local win = vim.api.nvim_get_current_win()
-
-	vim.api.nvim_set_option_value("foldmethod", "manual", { win = win })
-
 	local ft = vim.bo.filetype
 	local queryStr
+
 	if config.languages[ft] then
 		queryStr = config.languages[ft]
 	else
@@ -101,7 +97,6 @@ function M.foldFunctionsAndMethods()
 	local tree = parser:parse()[1]
 	local root = tree:root()
 
-
 	local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
 	if not ok then return end
 
@@ -110,7 +105,6 @@ function M.foldFunctionsAndMethods()
 		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
 	end
 
-	vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
 	updateFoldDiagnostics()
 end
 
@@ -124,8 +118,6 @@ function M.foldAround()
 		lastLine = line
 		return
 	end
-
-	vim.api.nvim_set_option_value("foldmethod", "manual", { win = win })
 
 	local ft = vim.bo.filetype
 	local queryStr
@@ -154,7 +146,6 @@ function M.foldAround()
 	end
 
 	lastLine = line
-	vim.api.nvim_set_option_value("foldmethod", originalFoldmethod, { win = win })
 	updateFoldDiagnostics()
 end
 
@@ -169,18 +160,11 @@ vim.lsp.handlers["textDocument/publishDiagnostics"] = function(err, result, ctx,
 	diags = vim.diagnostic.get(bufnr)
 end
 
-vim.api.nvim_create_autocmd("BufReadPre", {
-	callback = function ()
-		originalFoldmethod = vim.opt.foldmethod._value
-	end
-})
-
 vim.api.nvim_create_autocmd("BufEnter", {
 	callback = function ()
+		vim.opt.foldmethod = "manual"
 		vim.cmd("normal! zR")
-		vim.schedule(function ()
-			M.foldFunctionsAndMethods()
-		end)
+		vim.schedule(M.foldFunctionsAndMethods)
 	end
 })
 
