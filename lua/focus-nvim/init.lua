@@ -160,9 +160,14 @@ vim.lsp.handlers["textDocument/publishDiagnostics"] = function(err, result, ctx,
 	diags = vim.diagnostic.get(bufnr)
 end
 
-vim.api.nvim_create_autocmd("BufEnter", {
+vim.api.nvim_create_autocmd("UIEnter", {
 	callback = function ()
 		vim.opt.foldmethod = "manual"
+	end
+})
+
+vim.api.nvim_create_autocmd("BufEnter", {
+	callback = function ()
 		vim.cmd("normal! zR")
 		vim.schedule(M.foldFunctionsAndMethods)
 	end
