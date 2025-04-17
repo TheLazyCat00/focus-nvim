@@ -143,6 +143,7 @@ function M.foldAround()
 		end
 
 		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+		vim.cmd("normal! 0")
 		::continue::
 	end
 
