@@ -2,6 +2,8 @@
 
 focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes Treesitter to automatically fold regions in your code and provides smart folding by using language-specific queries to detect foldable function definitions and structures, making your code more navigable and less cluttered.
 
+[Demo](https://github.com/user-attachments/assets/79bd0370-fa5a-44ed-af72-370e45a769aa)
+
 ## Features
 
 - Automatically folds functions and methods when a buffer is read.
