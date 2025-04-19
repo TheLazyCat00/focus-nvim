@@ -8,7 +8,8 @@ focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes
 
 - Automatically folds functions and methods when a buffer is read.
 - Continuously closes folds when the cursor moves.
-- Uses flexible, language-specific Treesitter queries.
+- Adds diagnostic symbols + text.
+- Uses flexible, language-specific Tree-sitter queries.
 - Provides a fallback query when no specific language configuration is found.
 
 > [!WARNING]
