@@ -7,7 +7,7 @@ focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes
 ## Features
 
 - Automatically folds functions and methods when a buffer is read.
-- Dynamically opens folds under the cursor on movement.
+- Continuously closes folds when the cursor moves.
 - Uses flexible, language-specific Treesitter queries.
 - Provides a fallback query when no specific language configuration is found.
 
@@ -114,6 +114,6 @@ Take a look at the [`defaults`](lua/focus-nvim/defaults.lua) file for the option
 When a file is opened, focus-nvim:
 - Automatically unfolds all folds.
 - Applies language-specific folding rules to fold functions and methods.
-- Continuously adjusts folds around the cursor, ensuring only the relevant code remains unfurled.
+- Continuously adjusts folds, ensuring only the relevant code remains unfurled.
 
 This plugin operates silently in the background, requiring no additional commands.
