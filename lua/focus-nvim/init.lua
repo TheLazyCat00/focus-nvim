@@ -143,7 +143,6 @@ function M.foldAround()
 		end
 
 		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
-		vim.cmd("normal! 0")
 		::continue::
 	end
 
@@ -178,6 +177,11 @@ vim.api.nvim_create_autocmd("BufEnter", {
 vim.api.nvim_create_autocmd("CursorMoved", {
 	callback = function()
 		if vim.api.nvim_get_mode().mode == "n" then
+			local foldClosed = vim.fn.foldclosed(".") ~= - 1
+			if foldClosed then
+				vim.cmd("normal! ^")
+			end
+
 			vim.schedule(function ()
 				M.foldAround()
 			end)
