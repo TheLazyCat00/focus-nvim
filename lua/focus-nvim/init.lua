@@ -185,6 +185,8 @@ vim.api.nvim_create_autocmd("UIEnter", {
 
 vim.api.nvim_create_autocmd("BufEnter", {
 	callback = function ()
+		local bufnr = vim.api.nvim_get_current_buf()
+		diags = vim.diagnostic.get(bufnr)
 		vim.cmd("normal! zR")
 		M.foldAll()
 	end
