@@ -4,7 +4,7 @@ focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes
 
 [Demo](https://github.com/user-attachments/assets/7a749d29-6e01-4e69-bbf9-75d207711c2d)
 
-## Features
+## ✨ Features
 
 - Automatically folds functions and methods when a buffer is read.
 - Continuously closes folds when the cursor moves.
@@ -15,13 +15,13 @@ focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes
 > [!WARNING]
 > This plugin overwrites the `vim.api.foldmethod` value and sets it to `"manual"`. This is the only possible way to handle complex folding logic and could have negative side effects if you use folds for other things as well.
 
-## Installation and configuration
+## 🛠️ Installation and configuration
 
 > [!TIP]
 > Do `:InspectTree` to see all the available nodes in the current buffer
 
 ```lua
-{
+return {
     "TheLazyCat00/focus-nvim",
     event = "BufReadPre",
 
@@ -55,6 +55,15 @@ focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes
         -- the highlight-group for the diagnostic message
         hlGroup = "NonText"
     },
+
+    -- add this to your config to make opening folds easier
+    keys = {
+        {
+            "l", -- you can also use other keys, for example h
+            function () require("focus-nvim").open("l") end,
+            desc = "Right"
+        }
+    }
 }
 ```
 
@@ -110,7 +119,7 @@ Take a look at the [`defaults`](lua/focus-nvim/defaults.lua) file for the option
 - **callback**: A function whose return value is used as a display text.
 - **hlGroup**: The highlight-group which is used for the diagnostics message.
 
-## Usage
+## ✏️ Usage
 
 When a file is opened, focus-nvim:
 - Automatically unfolds all folds.

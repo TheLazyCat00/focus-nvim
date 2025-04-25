@@ -6,6 +6,10 @@ local config
 local lastLine
 local diags
 
+local function normal(cmdStr)
+	vim.cmd.normal { cmdStr, bang = true }
+end
+
 local function updateFoldDiagnostics()
 	if not diags then
 		return
@@ -102,7 +106,7 @@ function M.foldAll()
 
 	for _, node, _ in query:iter_captures(root, buf, 0, - 1) do
 		local startRow, _, endRow, _ = node:range()
-		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+		pcall(vim.cmd, string.format("%d,%dfold", startRow + 1, endRow + 1))
 	end
 
 	updateFoldDiagnostics()
@@ -142,12 +146,24 @@ function M.foldAround()
 			goto continue
 		end
 
-		vim.cmd(string.format("%d,%dfold", startRow + 1, endRow + 1))
+		if vim.fn.foldclosed(startRow + 1) == -1 then
+			pcall(vim.cmd, string.format("%d,%dfold", startRow + 1, endRow + 1))
+		end
 		::continue::
 	end
 
 	lastLine = line
 	updateFoldDiagnostics()
+end
+
+-- modified from:
+-- https://github.com/chrisgrieser/nvim-origami/blob/c84428e4d8d7b5ea0288225b042b7827c4b446af/lua/origami/features/fold-keymaps.lua#L25C1-L33C4
+-- thanks!
+function M.open(normalAction)
+	local isOnFold = vim.fn.foldclosed(".") ~= - 1 ---@diagnostic disable-line: param-type-mismatch
+	local action = isOnFold and "zo" or normalAction
+
+	pcall(normal, action)
 end
 
 function M.setup(opts)
@@ -177,11 +193,6 @@ vim.api.nvim_create_autocmd("BufEnter", {
 vim.api.nvim_create_autocmd("CursorMoved", {
 	callback = function()
 		if vim.api.nvim_get_mode().mode == "n" then
-			local foldClosed = vim.fn.foldclosed(".") ~= - 1
-			if foldClosed then
-				vim.cmd("normal! ^")
-			end
-
 			vim.schedule(function ()
 				M.foldAround()
 			end)
