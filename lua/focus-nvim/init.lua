@@ -95,13 +95,14 @@ function M.foldAll()
 		queryStr = config.fallback
 	end
 
-	local status, parser = pcall(vim.treesitter.get_parser, buf, ft)
+	local parser_name = vim.treesitter.language.get_lang(ft)
+	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
 	if not status then return end
 
 	local tree = parser:parse()[1]
 	local root = tree:root()
 
-	local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
+	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
 	if not ok then return end
 
 	for _, node, _ in query:iter_captures(root, buf, 0, - 1) do
@@ -131,13 +132,14 @@ function M.foldAround()
 		queryStr = config.fallback
 	end
 
-	local status, parser = pcall(vim.treesitter.get_parser, buf, ft)
+	local parser_name = vim.treesitter.language.get_lang(ft)
+	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
 	if not status then return end
 
 	local tree = parser:parse()[1]
 	local root = tree:root()
 
-	local ok, query = pcall(vim.treesitter.query.parse, ft, queryStr)
+	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
 	if not ok then return end
 
 	for _, node, _ in query:iter_captures(root, buf, lastLine - 1, lastLine) do
