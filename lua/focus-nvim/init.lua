@@ -1,23 +1,27 @@
 local defaults = require("focus-nvim.defaults")
+local state = require("focus-nvim.state")
+
+--- @class FocusNvim
 local M = {}
 
 local origHandler = vim.lsp.handlers["textDocument/publishDiagnostics"]
-local config
-local lastLine
-local diags
 
+--- Executes a normal mode command with bang.
+--- @param cmdStr string The normal mode command to execute
 local function normal(cmdStr)
 	vim.cmd.normal { cmdStr, bang = true }
 end
 
+--- Scans all closed folds in the current buffer and renders diagnostic
+--- counts as virtual text and signs on each fold's opening line.
 local function updateFoldDiagnostics()
-	if not diags then
+	if not state.diags then
 		return
 	end
 
 	local bufnr = vim.api.nvim_get_current_buf()
 	local ns = vim.api.nvim_create_namespace("fold_diagnostics")
-	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, - 1)
+	vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
 
 	local totalLines = vim.api.nvim_buf_line_count(bufnr)
 
@@ -33,7 +37,7 @@ local function updateFoldDiagnostics()
 			local infoCount = 0
 			local hintCount = 0
 
-			for _, diag in ipairs(diags) do
+			for _, diag in ipairs(state.diags) do
 				if diag.lnum >= (foldStart - 1) and diag.lnum <= (foldEnd - 1) then
 					if diag.severity == vim.diagnostic.severity.ERROR then
 						errorCount = errorCount + 1
@@ -49,30 +53,28 @@ local function updateFoldDiagnostics()
 
 			local severity = vim.diagnostic.severity
 			local virtConfig = vim.diagnostic.config().signs.text or {}
+			--- @type string
 			local virtText = ""
+			--- @type string | nil
 			local hl = nil
 
 			if errorCount > 0 then
-				-- virtText = "" vim.fn.sign_getdefined("Error")[1]
 				virtText = virtConfig[severity.ERROR]
 				hl = "DiagnosticError"
 			elseif warnCount > 0 then
-				-- virtText = ""
 				virtText = virtConfig[severity.WARN]
 				hl = "DiagnosticWarn"
 			elseif infoCount > 0 then
-				-- virtText = ""
 				virtText = virtConfig[severity.INFO]
 				hl = "DiagnosticInfo"
 			elseif hintCount > 0 then
-				-- virtText = ""
 				virtText = virtConfig[severity.HINT]
 				hl = "DiagnosticHint"
 			end
 
-			vim.api.nvim_buf_set_extmark(bufnr, ns, foldStart - 1, - 1, {
-				virt_text = { {config.callback(errorCount, warnCount, infoCount, hintCount), config.hlGroup }},
-				virt_text_pos = "inline"
+			vim.api.nvim_buf_set_extmark(bufnr, ns, foldStart - 1, -1, {
+				virt_text = { { state.config.callback(errorCount, warnCount, infoCount, hintCount), state.config.hlGroup } },
+				virt_text_pos = "inline",
 			})
 			vim.api.nvim_buf_set_extmark(bufnr, ns, foldStart - 1, 0, {
 				sign_text = virtText,
@@ -84,28 +86,34 @@ local function updateFoldDiagnostics()
 	end
 end
 
-function M.foldAll()
+--- Resets all folds in the current buffer by re-running the treesitter query
+--- and folding every matched node. Also refreshes fold diagnostics.
+function M.reset()
+	vim.opt.foldmethod = "manual"
+	vim.cmd("normal! zR")
 	local buf = vim.api.nvim_get_current_buf()
 	local ft = vim.bo.filetype
+	--- @type string
 	local queryStr
 
-	if config.languages[ft] then
-		queryStr = config.languages[ft]
+	if state.config.languages[ft] then
+		queryStr = state.config.languages[ft]
 	else
-		queryStr = config.fallback
+		queryStr = state.config.fallback
 	end
 
 	local parser_name = vim.treesitter.language.get_lang(ft)
 	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
 	if not status then return end
 
+	parser:invalidate() -- force fresh parse instead of using potentially stale cached tree
 	local tree = parser:parse()[1]
 	local root = tree:root()
 
 	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
 	if not ok then return end
 
-	for _, node, _ in query:iter_captures(root, buf, 0, - 1) do
+	for _, node, _ in query:iter_captures(root, buf, 0, -1) do
 		local startRow, _, endRow, _ = node:range()
 		pcall(vim.cmd, string.format("%d,%dfold", startRow + 1, endRow + 1))
 	end
@@ -113,36 +121,41 @@ function M.foldAll()
 	updateFoldDiagnostics()
 end
 
+--- Folds the treesitter node that was previously under the cursor (i.e. the
+--- node at `state.lastLine`), unless the cursor is still inside it.
+--- Called on every `CursorMoved` event in normal mode.
 function M.foldAround()
 	local buf = vim.api.nvim_get_current_buf()
 	local win = vim.api.nvim_get_current_win()
 	local cursor = vim.api.nvim_win_get_cursor(win)
-	local line = cursor[1]  -- 1-indexed
+	local line = cursor[1] -- 1-indexed
 
-	if not lastLine then
-		lastLine = line
+	if not state.lastLine then
+		state.lastLine = line
 		return
 	end
 
 	local ft = vim.bo.filetype
+	--- @type string
 	local queryStr
-	if config.languages[ft] then
-		queryStr = config.languages[ft]
+	if state.config.languages[ft] then
+		queryStr = state.config.languages[ft]
 	else
-		queryStr = config.fallback
+		queryStr = state.config.fallback
 	end
 
 	local parser_name = vim.treesitter.language.get_lang(ft)
 	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
 	if not status then return end
 
+	parser:invalidate() -- force fresh parse instead of using potentially stale cached tree
 	local tree = parser:parse()[1]
 	local root = tree:root()
 
 	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
 	if not ok then return end
 
-	for _, node, _ in query:iter_captures(root, buf, lastLine - 1, lastLine) do
+	for _, node, _ in query:iter_captures(root, buf, state.lastLine - 1, state.lastLine) do
 		local startRow, _, endRow, _ = node:range() -- startRow & endRow are 0-indexed
 		if startRow < line and line < endRow + 2 then
 			goto continue
@@ -154,47 +167,86 @@ function M.foldAround()
 		::continue::
 	end
 
-	lastLine = line
+	state.lastLine = line
 	updateFoldDiagnostics()
 end
 
--- modified from:
--- https://github.com/chrisgrieser/nvim-origami/blob/c84428e4d8d7b5ea0288225b042b7827c4b446af/lua/origami/features/fold-keymaps.lua#L25C1-L33C4
--- thanks!
+--- @param normalAction string The normal mode command to fall back to when not on a fold
 function M.open(normalAction)
-	local isOnFold = vim.fn.foldclosed(".") ~= - 1 ---@diagnostic disable-line: param-type-mismatch
+	local isOnFold = vim.fn.foldclosed(".") ~= -1 ---@diagnostic disable-line: param-type-mismatch
 	local action = isOnFold and "zo" or normalAction
 
 	pcall(normal, action)
 end
 
+--- Sets up the plugin with user-provided options, merged over the defaults.
+--- @param opts FocusConfig Partial or full config to override defaults
 function M.setup(opts)
-	config = vim.tbl_extend("force", defaults, opts)
+	state.config = vim.tbl_extend("force", defaults, opts)
 end
 
+-- Override the LSP publishDiagnostics handler to keep state.diags up to date.
 vim.lsp.handlers["textDocument/publishDiagnostics"] = function(err, result, ctx, config1)
 	origHandler(err, result, ctx, config1)
 
 	local bufnr = vim.api.nvim_get_current_buf()
-	diags = vim.diagnostic.get(bufnr)
+	state.diags = vim.diagnostic.get(bufnr)
 end
 
 vim.api.nvim_create_autocmd("BufEnter", {
-	callback = function ()
+	callback = function()
 		local bufnr = vim.api.nvim_get_current_buf()
-		diags = vim.diagnostic.get(bufnr)
-		vim.opt.foldmethod = "manual"
-		vim.cmd("normal! zR")
-		M.foldAll()
-	end
+		state.diags = vim.diagnostic.get(bufnr)
+		state.lastContent[bufnr] = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+		vim.schedule(M.reset)
+	end,
+})
+
+vim.api.nvim_create_autocmd("TextChanged", {
+	-- Deferred 100ms to avoid interrupting bulk operations like pasting.
+	callback = function()
+		vim.defer_fn(function()
+			local bufnr = vim.api.nvim_get_current_buf()
+			local win = vim.api.nvim_get_current_win()
+			local cursor = vim.api.nvim_win_get_cursor(win)
+			local currentLine = cursor[1]
+			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+			local shouldReset = false
+			if state.lastContent[bufnr] then
+				local startLine = math.max(1, currentLine - state.config.areaSearch)
+				local endLine = math.min(#lines, currentLine + state.config.areaSearch)
+
+				for i = startLine, endLine do
+					if i ~= currentLine and state.lastContent[bufnr][i] ~= lines[i] then
+						shouldReset = true
+						break
+					end
+				end
+
+				if not shouldReset then
+					for i = 1, #lines, state.config.spreadSearch do
+						if i ~= currentLine and state.lastContent[bufnr][i] ~= lines[i] then
+							shouldReset = true
+							break
+						end
+					end
+				end
+			end
+
+			if shouldReset then
+				M.reset()
+			end
+
+			state.lastContent[bufnr] = lines
+		end, 100)
+	end,
 })
 
 vim.api.nvim_create_autocmd("CursorMoved", {
 	callback = function()
 		if vim.api.nvim_get_mode().mode == "n" then
-			vim.schedule(function ()
-				M.foldAround()
-			end)
+			vim.schedule(M.foldAround)
 		end
 	end,
 })
