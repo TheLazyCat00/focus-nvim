@@ -86,32 +86,47 @@ local function updateFoldDiagnostics()
 	end
 end
 
+--- Returns the treesitter query string for the current buffer's filetype.
+--- @param ft string The filetype to look up
+--- @return string queryStr The query string to use
+local function getQueryStr(ft)
+	if state.config.languages[ft] then
+		return state.config.languages[ft]
+	end
+	return state.config.fallback
+end
+
+--- Returns a fresh treesitter parser and parsed query for the given buffer,
+--- or nil if either step fails.
+--- @param buf integer The buffer to parse
+--- @param ft string The filetype of the buffer
+--- @return vim.treesitter.LanguageTree | nil parser
+--- @return vim.treesitter.Query | nil query
+local function getParserAndQuery(buf, ft)
+	local parser_name = vim.treesitter.language.get_lang(ft)
+	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
+	if not status then return nil, nil end
+	parser:invalidate()
+
+	local queryStr = getQueryStr(ft)
+	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
+	if not ok then return nil, nil end
+
+	return parser, query
+end
+
 --- Resets all folds in the current buffer by re-running the treesitter query
 --- and folding every matched node. Also refreshes fold diagnostics.
 function M.reset()
 	vim.opt.foldmethod = "manual"
 	vim.cmd("normal! zR")
 	local buf = vim.api.nvim_get_current_buf()
-	local ft = vim.bo.filetype
-	--- @type string
-	local queryStr
 
-	if state.config.languages[ft] then
-		queryStr = state.config.languages[ft]
-	else
-		queryStr = state.config.fallback
-	end
+	local parser, query = getParserAndQuery(buf, vim.bo.filetype)
+	if not parser or not query then return end
 
-	local parser_name = vim.treesitter.language.get_lang(ft)
-	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
-	if not status then return end
-
-	parser:invalidate() -- force fresh parse instead of using potentially stale cached tree
 	local tree = parser:parse()[1]
 	local root = tree:root()
-
-	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
-	if not ok then return end
 
 	for _, node, _ in query:iter_captures(root, buf, 0, -1) do
 		local startRow, _, endRow, _ = node:range()
@@ -127,36 +142,21 @@ end
 function M.foldAround()
 	local buf = vim.api.nvim_get_current_buf()
 	local win = vim.api.nvim_get_current_win()
-	local cursor = vim.api.nvim_win_get_cursor(win)
-	local line = cursor[1] -- 1-indexed
+	local line = vim.api.nvim_win_get_cursor(win)[1] -- 1-indexed
 
 	if not state.lastLine then
 		state.lastLine = line
 		return
 	end
 
-	local ft = vim.bo.filetype
-	--- @type string
-	local queryStr
-	if state.config.languages[ft] then
-		queryStr = state.config.languages[ft]
-	else
-		queryStr = state.config.fallback
-	end
+	local parser, query = getParserAndQuery(buf, vim.bo.filetype)
+	if not parser or not query then return end
 
-	local parser_name = vim.treesitter.language.get_lang(ft)
-	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
-	if not status then return end
-
-	parser:invalidate() -- force fresh parse instead of using potentially stale cached tree
 	local tree = parser:parse()[1]
 	local root = tree:root()
 
-	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
-	if not ok then return end
-
 	for _, node, _ in query:iter_captures(root, buf, state.lastLine - 1, state.lastLine) do
-		local startRow, _, endRow, _ = node:range() -- startRow & endRow are 0-indexed
+		local startRow, _, endRow, _ = node:range()
 		if startRow < line and line < endRow + 2 then
 			goto continue
 		end
