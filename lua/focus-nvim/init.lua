@@ -106,7 +106,7 @@ local function getParserAndQuery(buf, ft)
 	local parser_name = vim.treesitter.language.get_lang(ft)
 	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
 	if not status then return nil, nil end
-	parser:invalidate()
+	parser:invalidate(true)
 
 	local queryStr = getQueryStr(ft)
 	local ok, query = pcall(vim.treesitter.query.parse, parser_name, queryStr)
@@ -119,7 +119,7 @@ end
 --- and folding every matched node. Also refreshes fold diagnostics.
 function M.reset()
 	vim.opt.foldmethod = "manual"
-	vim.cmd("normal! zR")
+	pcall(function() vim.cmd("normal! zR") end)
 	local buf = vim.api.nvim_get_current_buf()
 
 	local parser, query = getParserAndQuery(buf, vim.bo.filetype)
