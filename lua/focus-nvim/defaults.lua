@@ -40,8 +40,6 @@ end
 --- @field fallback string Treesitter query string used when filetype has no entry in languages
 --- @field callback fun(errors: integer, warns: integer, infos: integer, hints: integer): string Formats fold diagnostic virtual text
 --- @field hlGroup string Highlight group for fold diagnostic virtual text
---- @field areaSearch integer Number of lines around cursor to check for changes
---- @field spreadSearch integer Step size for the spread change detection pass
 
 --- @type FocusConfig
 return {
@@ -51,6 +49,4 @@ return {
 	fallback = "(function_definition) @func",
 	callback = defaultFormat,
 	hlGroup = "NonText",
-	areaSearch = 5,
-	spreadSearch = 10,
 }
