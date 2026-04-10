@@ -109,21 +109,20 @@ local function applyFoldsQueryForFt(ft)
 		return
 	end
 
+	-- Try ft-specific rules; otherwise fallback.
 	local spec = cfg.languages and cfg.languages[ft]
-	if not spec then
+	if spec == nil then
 		spec = cfg.fallback
 	end
-	if not spec then
-		return
+
+	-- If nothing validates for this language, set folds query to ""
+	-- so Neovim runtime folds.scm never applies for this lang.
+	local q = nil
+	if spec ~= nil then
+		q = normalizeFoldsQuery(lang, spec)
 	end
 
-	local q = normalizeFoldsQuery(lang, spec)
-	if not q then
-		-- Best-effort: invalid for this language; do nothing (keep runtime folds query).
-		return
-	end
-
-	vim.treesitter.query.set(lang, "folds", q)
+	vim.treesitter.query.set(lang, "folds", q or "")
 end
 
 local function applyGlobalFoldOptions()
@@ -366,7 +365,10 @@ function M.setup(opts)
 				return
 			end
 
+			-- Always override folds query (possibly to "")
+			-- so runtime folds.scm never applies unless you provide a valid spec/fallback.
 			applyFoldsQueryForFt(ft)
+
 			enableBuiltinTsFolding(winid)
 
 			vim.schedule(function()

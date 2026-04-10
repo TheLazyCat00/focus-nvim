@@ -63,7 +63,7 @@ return {
 	},
 
 	-- Generic fallback is allowed, but will be validated per-language and skipped if invalid.
-	fallback = { "function_definition", ";;" },
+	fallback = { "function_definition" },
 
 	fold = {
 		level = 0,
