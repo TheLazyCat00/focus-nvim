@@ -38,10 +38,10 @@ end
 ---@alias FocusFoldsSpec string|string[] Folds query string OR list of node type names
 
 --- @class FocusFoldConfig
---- @field level? integer foldlevel (window-local)
---- @field levelStart? integer foldlevelstart (global)
---- @field open? string foldopen (global)
---- @field close? string foldclose (global)
+--- @field level integer foldlevel (window-local)
+--- @field levelStart integer foldlevelstart (global)
+--- @field open string foldopen (global)
+--- @field close string foldclose (global)
 
 --- @class FocusDiagnosticsConfig
 --- @field enabled boolean
@@ -51,7 +51,7 @@ end
 
 --- @class FocusConfig
 --- @field languages table<string, FocusFoldsSpec> Map of filetype -> folds query OR list of node types
---- @field fallback FocusFoldsSpec? Fallback folds query OR list of node types
+--- @field fallback FocusFoldsSpec Fallback folds query OR list of node types
 --- @field fold FocusFoldConfig
 --- @field diagnostics FocusDiagnosticsConfig
 

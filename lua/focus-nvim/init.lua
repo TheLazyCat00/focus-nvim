@@ -1,3 +1,5 @@
+-- lua/focus-nvim/init.lua
+
 local defaults = require("focus-nvim.defaults")
 local state = require("focus-nvim.state")
 
@@ -19,21 +21,13 @@ local function ensureNamespace()
 end
 
 ---@param bufnr integer
----@return integer? winid
-local function pickWindowForBuf(bufnr)
+---@return integer[] winids
+local function windowsForBuf(bufnr)
 	local wins = vim.fn.win_findbuf(bufnr)
-	if type(wins) ~= "table" or #wins == 0 then
-		return nil
+	if type(wins) ~= "table" then
+		return {}
 	end
-
-	local cur = vim.api.nvim_get_current_win()
-	for _, w in ipairs(wins) do
-		if w == cur then
-			return cur
-		end
-	end
-
-	return wins[1]
+	return wins
 end
 
 ---@param lang string
@@ -105,65 +99,32 @@ local function applyFoldsQueryForFt(ft)
 	end
 
 	local cfg = state.config
-	if not cfg then
-		return
-	end
+	local spec = (cfg.languages and cfg.languages[ft]) or cfg.fallback
 
-	-- Try ft-specific rules; otherwise fallback.
-	local spec = cfg.languages and cfg.languages[ft]
-	if spec == nil then
-		spec = cfg.fallback
-	end
-
-	-- If nothing validates for this language, set folds query to ""
-	-- so Neovim runtime folds.scm never applies for this lang.
-	local q = nil
-	if spec ~= nil then
-		q = normalizeFoldsQuery(lang, spec)
-	end
-
+	-- Always override folds query:
+	-- If nothing validates for this language => "", so runtime folds.scm never applies for this lang.
+	local q = normalizeFoldsQuery(lang, spec)
 	vim.treesitter.query.set(lang, "folds", q or "")
 end
 
 local function applyGlobalFoldOptions()
-	local cfg = state.config
-	if not cfg then
-		return
-	end
+	local f = state.config.fold
 
-	local f = cfg.fold or {}
-
-	-- These are GLOBAL options in Neovim (do NOT use vim.wo here).
-	if f.levelStart ~= nil then
-		vim.o.foldlevelstart = f.levelStart
-	end
-	if f.open ~= nil then
-		vim.o.foldopen = f.open
-	end
-	if f.close ~= nil then
-		vim.o.foldclose = f.close
-	end
+	-- Global options (do NOT use vim.wo)
+	vim.o.foldlevelstart = f.levelStart
+	vim.o.foldopen = f.open
+	vim.o.foldclose = f.close
 end
 
 ---@param winid integer
 local function enableBuiltinTsFolding(winid)
-	local cfg = state.config
-	if not cfg then
-		return
-	end
-
-	local f = cfg.fold or {}
+	local f = state.config.fold
 
 	vim.api.nvim_win_call(winid, function()
-		-- Built-in Tree-sitter folding
 		vim.wo.foldmethod = "expr"
 		vim.wo.foldexpr = "v:lua.vim.treesitter.foldexpr()"
 		vim.wo.foldenable = true
-
-		-- Window-local
-		if f.level ~= nil then
-			vim.wo.foldlevel = f.level
-		end
+		vim.wo.foldlevel = f.level
 	end)
 end
 
@@ -174,10 +135,12 @@ local function recomputeFolds(winid)
 	end)
 end
 
+-- Diagnostic prefix cache (per buffer). Rebuilt on DiagnosticChanged and lazily if line count changes.
+
 ---@param bufnr integer
----@param totalLines integer
----@return fun(s: integer, e: integer): integer, integer, integer, integer
-local function buildDiagPrefix(bufnr, totalLines)
+---@return FocusDiagPrefix
+local function rebuildDiagPrefix(bufnr)
+	local lineCount = vim.api.nvim_buf_line_count(bufnr)
 	local diags = state.diagsByBuf[bufnr] or vim.diagnostic.get(bufnr)
 
 	local function zeros(n)
@@ -189,14 +152,14 @@ local function buildDiagPrefix(bufnr, totalLines)
 		return t
 	end
 
-	local err = zeros(totalLines)
-	local warn = zeros(totalLines)
-	local info = zeros(totalLines)
-	local hint = zeros(totalLines)
+	local err = zeros(lineCount)
+	local warn = zeros(lineCount)
+	local info = zeros(lineCount)
+	local hint = zeros(lineCount)
 
 	for _, d in ipairs(diags) do
 		local l = (d.lnum or 0) + 1
-		if l >= 1 and l <= totalLines then
+		if l >= 1 and l <= lineCount then
 			if d.severity == vim.diagnostic.severity.ERROR then
 				err[l] = err[l] + 1
 			elseif d.severity == vim.diagnostic.severity.WARN then
@@ -209,53 +172,92 @@ local function buildDiagPrefix(bufnr, totalLines)
 		end
 	end
 
-	for i = 1, totalLines do
+	for i = 1, lineCount do
 		err[i] = err[i] + err[i - 1]
 		warn[i] = warn[i] + warn[i - 1]
 		info[i] = info[i] + info[i - 1]
 		hint[i] = hint[i] + hint[i - 1]
 	end
 
+	---@type FocusDiagPrefix
+	local prefix = {
+		lineCount = lineCount,
+		err = err,
+		warn = warn,
+		info = info,
+		hint = hint,
+	}
+
+	state.diagPrefixCache[bufnr] = prefix
+	return prefix
+end
+
+---@param bufnr integer
+---@return fun(s: integer, e: integer): integer, integer, integer, integer
+local function getRangeCounts(bufnr)
+	local cached = state.diagPrefixCache[bufnr]
+	local currentLineCount = vim.api.nvim_buf_line_count(bufnr)
+
+	if not cached or cached.lineCount ~= currentLineCount then
+		cached = rebuildDiagPrefix(bufnr)
+	end
+
 	local function count(pref, s, e)
-		if s < 1 then
-			s = 1
-		end
-		if e > totalLines then
-			e = totalLines
-		end
+		if s < 1 then s = 1 end
+		if e > cached.lineCount then e = cached.lineCount end
+		if e < s then return 0 end
 		return pref[e] - pref[s - 1]
 	end
 
 	return function(s, e)
-		return count(err, s, e), count(warn, s, e), count(info, s, e), count(hint, s, e)
+		return count(cached.err, s, e),
+			count(cached.warn, s, e),
+			count(cached.info, s, e),
+			count(cached.hint, s, e)
 	end
 end
 
+---@param winid integer
+---@return integer top, integer bot
+local function visibleRange(winid)
+	local top = 1
+	local bot = 1
+
+	vim.api.nvim_win_call(winid, function()
+		top = vim.fn.line("w0")
+		bot = vim.fn.line("w$")
+	end)
+
+	return top, bot
+end
+
 ---@param bufnr integer
-local function updateFoldDiagnostics(bufnr)
-	local cfg = state.config
-	if not (cfg and cfg.diagnostics and cfg.diagnostics.enabled) then
+---@param winid integer
+local function updateFoldDiagnostics(bufnr, winid)
+	local dcfg = state.config.diagnostics
+	if not dcfg.enabled then
 		return
 	end
 	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
 	end
-
-	local winid = pickWindowForBuf(bufnr)
-	if not winid then
+	if not (winid and vim.api.nvim_win_is_valid(winid)) then
+		return
+	end
+	if vim.api.nvim_win_get_buf(winid) ~= bufnr then
 		return
 	end
 
 	local ns = ensureNamespace()
+	local top, bot = visibleRange(winid)
+	local rangeCounts = getRangeCounts(bufnr)
 
 	vim.api.nvim_win_call(winid, function()
-		vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
+		-- Clear only visible lines (big win vs clearing entire buffer).
+		vim.api.nvim_buf_clear_namespace(bufnr, ns, math.max(top - 1, 0), bot)
 
-		local totalLines = vim.api.nvim_buf_line_count(bufnr)
-		local rangeCounts = buildDiagPrefix(bufnr, totalLines)
-
-		local dcfg = vim.diagnostic.config() or {}
-		local signs = dcfg.signs or {}
+		local globalDiagCfg = vim.diagnostic.config() or {}
+		local signs = globalDiagCfg.signs or {}
 		local signTexts = (type(signs) == "table" and signs.text) or {}
 		if type(signTexts) ~= "table" then
 			signTexts = {}
@@ -263,45 +265,49 @@ local function updateFoldDiagnostics(bufnr)
 
 		local severity = vim.diagnostic.severity
 
-		local i = 1
-		while i <= totalLines do
+		local i = top
+		while i <= bot do
 			local foldStart = vim.fn.foldclosed(i)
 			if foldStart == -1 then
 				i = i + 1
 			else
 				local foldEnd = vim.fn.foldclosedend(i)
-				local e, w, inf, h = rangeCounts(foldStart, foldEnd)
 
-				local signText, signHl
-				if e > 0 then
-					signText = signTexts[severity.ERROR]
-					signHl = "DiagnosticSignError"
-				elseif w > 0 then
-					signText = signTexts[severity.WARN]
-					signHl = "DiagnosticSignWarn"
-				elseif inf > 0 then
-					signText = signTexts[severity.INFO]
-					signHl = "DiagnosticSignInfo"
-				elseif h > 0 then
-					signText = signTexts[severity.HINT]
-					signHl = "DiagnosticSignHint"
-				end
+				-- Only annotate folds whose start line is visible.
+				if foldStart >= top and foldStart <= bot then
+					local e, w, inf, h = rangeCounts(foldStart, foldEnd)
 
-				local virt = cfg.diagnostics.callback(e, w, inf, h)
-				if virt and virt ~= "" then
-					vim.api.nvim_buf_set_extmark(bufnr, ns, foldStart - 1, -1, {
-						virt_text = {
-							{ virt, cfg.diagnostics.hlGroup },
-						},
-						virt_text_pos = "inline",
-					})
-				end
+					local signText, signHl
+					if e > 0 then
+						signText = signTexts[severity.ERROR]
+						signHl = "DiagnosticSignError"
+					elseif w > 0 then
+						signText = signTexts[severity.WARN]
+						signHl = "DiagnosticSignWarn"
+					elseif inf > 0 then
+						signText = signTexts[severity.INFO]
+						signHl = "DiagnosticSignInfo"
+					elseif h > 0 then
+						signText = signTexts[severity.HINT]
+						signHl = "DiagnosticSignHint"
+					end
 
-				if signText and signHl then
-					vim.api.nvim_buf_set_extmark(bufnr, ns, foldStart - 1, 0, {
-						sign_text = signText,
-						sign_hl_group = signHl,
-					})
+					local virt = dcfg.callback(e, w, inf, h)
+					if virt and virt ~= "" then
+						vim.api.nvim_buf_set_extmark(bufnr, ns, foldStart - 1, -1, {
+							virt_text = {
+								{ virt, dcfg.hlGroup },
+							},
+							virt_text_pos = "inline",
+						})
+					end
+
+					if signText and signHl then
+						vim.api.nvim_buf_set_extmark(bufnr, ns, foldStart - 1, 0, {
+							sign_text = signText,
+							sign_hl_group = signHl,
+						})
+					end
 				end
 
 				i = foldEnd + 1
@@ -311,19 +317,24 @@ local function updateFoldDiagnostics(bufnr)
 end
 
 ---@param bufnr integer
-local function scheduleDiagUpdate(bufnr)
-	if state.pendingUpdate[bufnr] then
+---@param winid integer
+local function scheduleDiagUpdate(bufnr, winid)
+	if not (winid and vim.api.nvim_win_is_valid(winid)) then
 		return
 	end
-	state.pendingUpdate[bufnr] = true
 
-	local cfg = state.config or defaults
-	local ms = (cfg.diagnostics and cfg.diagnostics.debounceMs) or 80
+	local key = ("%d:%d"):format(bufnr, winid)
+	if state.pendingUpdate[key] then
+		return
+	end
+	state.pendingUpdate[key] = true
+
+	local ms = state.config.diagnostics.debounceMs
 
 	vim.defer_fn(function()
-		state.pendingUpdate[bufnr] = nil
-		if vim.api.nvim_buf_is_valid(bufnr) then
-			updateFoldDiagnostics(bufnr)
+		state.pendingUpdate[key] = nil
+		if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid) then
+			updateFoldDiagnostics(bufnr, winid)
 		end
 	end, ms)
 end
@@ -339,37 +350,44 @@ end
 --- @param opts FocusConfig?
 function M.setup(opts)
 	state.config = vim.tbl_deep_extend("force", defaults, opts or {})
-
 	applyGlobalFoldOptions()
 
 	local aug = vim.api.nvim_create_augroup("FocusNvim", { clear = true })
 
-	vim.api.nvim_create_autocmd("FileType", {
+	---@param bufnr integer
+	---@param winid integer
+	local function attachToWindow(bufnr, winid)
+		if not (vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid)) then
+			return
+		end
+		if not pcall(vim.treesitter.get_parser, bufnr) then
+			return
+		end
+
+		-- Avoid redoing the expensive parts repeatedly for the same window+buffer
+		vim.w[winid].focusNvimAttached = vim.w[winid].focusNvimAttached or {}
+		if vim.w[winid].focusNvimAttached[bufnr] then
+			scheduleDiagUpdate(bufnr, winid)
+			return
+		end
+		vim.w[winid].focusNvimAttached[bufnr] = true
+
+		local ft = vim.bo[bufnr].filetype
+		applyFoldsQueryForFt(ft)
+		enableBuiltinTsFolding(winid)
+
+		vim.schedule(function()
+			if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_buf_is_valid(bufnr) then
+				recomputeFolds(winid)
+				scheduleDiagUpdate(bufnr, winid)
+			end
+		end)
+	end
+
+	vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
 		group = aug,
 		callback = function(ev)
-			local bufnr = ev.buf
-			local ft = vim.bo[bufnr].filetype
-			local winid = pickWindowForBuf(bufnr)
-			if not winid then
-				return
-			end
-
-			if not pcall(vim.treesitter.get_parser, bufnr) then
-				return
-			end
-
-			-- Always override folds query (possibly to "")
-			-- so runtime folds.scm never applies unless you provide a valid spec/fallback.
-			applyFoldsQueryForFt(ft)
-
-			enableBuiltinTsFolding(winid)
-
-			vim.schedule(function()
-				if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_buf_is_valid(bufnr) then
-					recomputeFolds(winid)
-					scheduleDiagUpdate(bufnr)
-				end
-			end)
+			attachToWindow(ev.buf, vim.api.nvim_get_current_win())
 		end,
 	})
 
@@ -377,15 +395,19 @@ function M.setup(opts)
 		group = aug,
 		callback = function(ev)
 			local bufnr = ev.buf
-			state.diagsByBuf[bufnr] = (ev.data and ev.data.diagnostics) or vim.diagnostic.get(ev.buf)
-			scheduleDiagUpdate(bufnr)
+			state.diagsByBuf[bufnr] = (ev.data and ev.data.diagnostics) or vim.diagnostic.get(bufnr)
+			rebuildDiagPrefix(bufnr)
+
+			for _, winid in ipairs(windowsForBuf(bufnr)) do
+				scheduleDiagUpdate(bufnr, winid)
+			end
 		end,
 	})
 
 	vim.api.nvim_create_autocmd({ "CursorMoved", "WinScrolled" }, {
 		group = aug,
 		callback = function(ev)
-			scheduleDiagUpdate(ev.buf)
+			scheduleDiagUpdate(ev.buf, vim.api.nvim_get_current_win())
 		end,
 	})
 
@@ -393,15 +415,12 @@ function M.setup(opts)
 		group = aug,
 		callback = function(ev)
 			local bufnr = ev.buf
-			local winid = pickWindowForBuf(bufnr)
-			if not winid then
-				return
-			end
+			local winid = vim.api.nvim_get_current_win()
 
 			vim.schedule(function()
 				if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_buf_is_valid(bufnr) then
 					recomputeFolds(winid)
-					scheduleDiagUpdate(bufnr)
+					scheduleDiagUpdate(bufnr, winid)
 				end
 			end)
 		end,
