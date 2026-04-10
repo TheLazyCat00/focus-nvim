@@ -6,8 +6,8 @@
 
 --- @type FocusState
 return {
-	ns            = nil,
-	diagsByBuf    = {},
+	ns = nil,
+	diagsByBuf = {},
 	pendingUpdate = {},
-	config        = nil,
+	config = nil,
 }

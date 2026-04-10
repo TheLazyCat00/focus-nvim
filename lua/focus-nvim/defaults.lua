@@ -35,12 +35,14 @@ local function defaultFormat(errors, warns, infos, hints)
 	return string.rep(" ", spacing) .. result
 end
 
+---@alias FocusFoldsSpec string|string[] Folds query string OR list of node type names
+
 --- @class FocusFoldConfig
---- @field level? integer
---- @field levelStart? integer
---- @field open? string
---- @field close? string
---- @field startClosed? boolean
+--- @field level? integer foldlevel (window-local)
+--- @field levelStart? integer foldlevelstart (global)
+--- @field open? string foldopen (global)
+--- @field close? string foldclose (global)
+--- @field startClosed? boolean whether to `zM` then `zv` after recomputing folds
 
 --- @class FocusDiagnosticsConfig
 --- @field enabled boolean
@@ -49,8 +51,8 @@ end
 --- @field hlGroup string
 
 --- @class FocusConfig
---- @field languages table<string, string|table> Map of filetype -> folds query string OR list of node types
---- @field fallback string|table Fallback folds query string OR list of node types
+--- @field languages table<string, FocusFoldsSpec> Map of filetype -> folds query OR list of node types
+--- @field fallback FocusFoldsSpec? Fallback folds query OR list of node types
 --- @field fold FocusFoldConfig
 --- @field diagnostics FocusDiagnosticsConfig
 
@@ -59,14 +61,18 @@ return {
 	languages = {
 		lua = { "function_declaration", "function_definition" },
 	},
-	fallback = { "function_definition" },
+
+	-- Generic fallback is allowed, but will be validated per-language and skipped if invalid.
+	fallback = { "function_definition", ";;" },
 
 	fold = {
 		level = 0,
 		levelStart = 0,
 		startClosed = true,
 
-		-- Cursor-centric behavior (set open="" if you want manual-open-only)
+		-- Cursor-centric behavior:
+		-- open=""		=> never auto-open folds (manual only)
+		-- close="all"	=> auto-close folds you leave (re-applies foldlevel)
 		open = "",
 		close = "all",
 	},
