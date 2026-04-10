@@ -171,13 +171,6 @@ end
 local function recomputeFolds(winid)
 	vim.api.nvim_win_call(winid, function()
 		vim.cmd("silent! normal! zx")
-
-		local cfg = state.config
-		local f = (cfg and cfg.fold) or {}
-		if f.startClosed then
-			vim.cmd("silent! normal! zM")
-			vim.cmd("silent! normal! zv")
-		end
 	end)
 end
 

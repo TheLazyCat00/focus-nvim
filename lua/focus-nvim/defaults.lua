@@ -42,7 +42,6 @@ end
 --- @field levelStart? integer foldlevelstart (global)
 --- @field open? string foldopen (global)
 --- @field close? string foldclose (global)
---- @field startClosed? boolean whether to `zM` then `zv` after recomputing folds
 
 --- @class FocusDiagnosticsConfig
 --- @field enabled boolean
@@ -68,12 +67,11 @@ return {
 	fold = {
 		level = 0,
 		levelStart = 0,
-		startClosed = true,
 
 		-- Cursor-centric behavior:
-		-- open=""		=> never auto-open folds (manual only)
+		-- open=""      => never auto-open folds (manual only)
 		-- close="all"	=> auto-close folds you leave (re-applies foldlevel)
-		open = "",
+		open = "search,hor,jump,mark,undo",
 		close = "all",
 	},
 

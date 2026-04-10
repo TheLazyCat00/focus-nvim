@@ -1,129 +1,59 @@
 # focus-nvim
 
-focus-nvim is a Neovim plugin that makes your code less distracting. It utilizes Treesitter to automatically fold regions in your code and provides smart folding by using language-specific queries to detect foldable function definitions and structures, making your code more navigable and less cluttered.
+focus-nvim provides a "spotlight" folding experience for Neovim. It uses Tree-sitter to automatically fold code structures and ensures that only the area around your cursor remains unfolded, keeping your workspace clean and focused.
 
 [Demo](https://github.com/user-attachments/assets/7a749d29-6e01-4e69-bbf9-75d207711c2d)
 
-## ✨ Features
+## Features
 
-- Automatically folds functions and methods when a buffer is read.
-- Continuously closes folds when the cursor moves.
-- Adds diagnostic symbols + text.
-- Uses flexible, language-specific Tree-sitter queries.
-- Provides a fallback query when no specific language configuration is found.
+- **Contextual folding**: Folds follow your cursor. As you move into a region, it opens; as you move away, it closes.
+- **Tree-sitter powered**: Define exactly which nodes (functions, classes, etc.) should be foldable using simple lists or full queries.
+- **Folded diagnostics**: Displays error and warning counts for closed regions as inline virtual text and signs.
+- **Performance**: Leverages Neovim's built-in Tree-sitter folding engine (`foldmethod=expr`) rather than manual range calculations.
+- **Clean defaults**: Disables default runtime Tree-sitter folds (like Markdown sections) so that only the structures you care about are folded.
 
-> [!WARNING]
-> This plugin overwrites the `vim.api.foldmethod` value and sets it to `"manual"`. This is the only possible way to handle complex folding logic and could have negative side effects if you use folds for other things as well.
+> [!NOTE]
+> This plugin manages `foldmethod`, `foldexpr`, `foldopen`, and `foldclose`. It is designed for users who want an automated, cursor-centric folding workflow.
 
-## 🛠️ Installation and configuration
+## Installation and configuration
 
-> [!TIP]
-> Do `:InspectTree` to see all the available nodes in the current buffer
+Run `:InspectTree` to discover the node names for your specific language.
 
 ```lua
 return {
-    "TheLazyCat00/focus-nvim",
-    event = "BufReadPre",
-
-    -- these are also the defaults
-    opts = {
-        languages = {
-            -- add your languages here
-            -- NOTE: you have to set a capture group
-            -- the name of the group can be anything
-            -- here it's @func
-            ["lua"] = "(function_declaration) @func"
-        },
-
-        -- fallback for when the language is not set in languages
-        -- NOTE: also set a capture group here
-        fallback = "(function_definition) @func",
-
-        -- function whose return value is used as a display text
-        -- used for diagnostics inside the fold which cannot be seen
-        -- this example would simply display the amount of errors
-        -- the default function for this is defined  1 section further below
-
-        callback = function(errors, warns, infos, hints)
-            -- consider taking a look at:
-                vim.diagnostic.config().virtual_text
-            ----------------------------------------
-
-            return errors
-        end,
-
-        -- the highlight-group for the diagnostic message
-        hlGroup = "NonText"
-    },
-
-    -- add this to your config to make opening folds easier
-    keys = {
-        {
-            "l", -- you can also use other keys, for example h
-            function () require("focus-nvim").open("l") end,
-            desc = "Right"
-        }
-    }
+	"TheLazyCat00/focus-nvim",
+	event = "BufReadPost",
+	opts = {},
 }
 ```
 
-<details>
-    <summary>
-        Default formatting function
-    </summary>
+The default options are at [lua/focus-nvim/defaults.lua](./lua/focus-nvim/defaults.lua).
 
-```lua
-local function defaultFormat(errors, warns, infos, hints)
-    local segments = {}
-    if errors > 0 then
-        table.insert(segments, "Errors: " .. errors)
-    end
-    if warns > 0 then
-        table.insert(segments, "Warns: " .. warns)
-    end
-    if infos > 0 then
-        table.insert(segments, "Infos: " .. infos)
-    end
-    if hints > 0 then
-        table.insert(segments, "Hints: " .. hints)
-    end
+## Options
 
-    local result = ""
-    for _, segment in ipairs(segments) do
-        if result == "" then
-            result = segment
-            goto continue
-        end
+### languages
+A table mapping filetypes to either a list of node type strings or a raw Tree-sitter query. If a node list is provided, the plugin automatically filters out nodes that do not exist in that specific language grammar.
 
-        result = result .. ", " .. segment
-        ::continue::
-    end
+### fallback
+The default folding rule used when the current filetype is not present in the `languages` table.
 
-    if result == "" then
-        return ""
-    end
+### fold
+- **level**: Sets `foldlevel`. 0 ensures everything outside your cursor context is folded.
+- **levelStart**: Sets the global `foldlevelstart`.
+- **open**: Maps to the Neovim option `'foldopen'`. This controls which commands open a closed fold. Common values include `"all"`, `"search"`, `"undo"`, and `"jump"`. For a full list of supported triggers, see `:h 'foldopen'`. Note that standard vertical motions like `j` and `k` are not included in `foldopen`.
+- **close**: Maps to the Neovim option `'foldclose'`. Set this to `"all"` to enable automatic re-folding when the cursor leaves a region. See `:h 'foldclose'` for more details.
 
-    local virtualText = vim.diagnostic.config().virtual_text or {}
-    result = string.rep(" ", virtualText.spacing) .. virtualText.prefix .. " " .. result
-    return result
-end
-```
-</details>
+### diagnostics
+- **enabled**: Toggles the display of diagnostic counts on folded lines.
+- **callback**: A function that formats the diagnostic counts into a string for the virtual text.
+- **hlGroup**: The highlight group applied to the diagnostic virtual text.
 
-Take a look at the [`defaults`](lua/focus-nvim/defaults.lua) file for the options that are actually being used in the [`init.lua`](lua/focus-nvim/init.lua).
+## Usage
 
-### opts
+Once configured, focus-nvim operates automatically:
+1. When you enter a buffer, it overrides the `folds` query for that language to match your configuration.
+2. It sets the window to use Tree-sitter folding.
+3. As you move the cursor, folds will adapt based on your `fold.open` and `fold.close` settings.
+4. Closed folds will display a summary of any diagnostics (Errors, Warnings, etc.) contained within that hidden region.
 
-- **languages:** A table associating filetypes with Treesitter queries for identifying foldable code blocks.
-- **fallback:** A fallback Treesitter query if no language-specific option exists.
-- **callback**: A function whose return value is used as a display text.
-- **hlGroup**: The highlight-group which is used for the diagnostics message.
-
-## ✏️ Usage
-
-When a file is opened, focus-nvim:
-- Automatically unfolds all folds.
-- Applies language-specific folding rules to fold functions and methods.
-- Continuously adjusts folds, ensuring only the relevant code remains unfurled.
-
-This plugin operates silently in the background, requiring no additional commands.
+The `require("focus-nvim").open(fallback)` can be used to add additional keys for opening folds and afterwards doing their normal action. It is not required to add movement keys (like `l` or `h`) since the plugin already includes `hor` in the open field in the options.
