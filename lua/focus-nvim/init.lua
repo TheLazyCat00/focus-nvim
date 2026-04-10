@@ -105,7 +105,7 @@ end
 local function getParserAndQuery(buf, ft)
 	local parser_name = vim.treesitter.language.get_lang(ft)
 	local status, parser = pcall(vim.treesitter.get_parser, buf, parser_name)
-	if not status then return nil, nil end
+	if not status or not parser then return nil, nil end
 	parser:invalidate(true)
 
 	local queryStr = getQueryStr(ft)
@@ -199,47 +199,6 @@ vim.api.nvim_create_autocmd("BufEnter", {
 		state.diags = vim.diagnostic.get(bufnr)
 		state.lastContent[bufnr] = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
 		vim.schedule(M.reset)
-	end,
-})
-
-vim.api.nvim_create_autocmd("TextChanged", {
-	-- Deferred 100ms to avoid interrupting bulk operations like pasting.
-	callback = function()
-		vim.defer_fn(function()
-			local bufnr = vim.api.nvim_get_current_buf()
-			local win = vim.api.nvim_get_current_win()
-			local cursor = vim.api.nvim_win_get_cursor(win)
-			local currentLine = cursor[1]
-			local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-
-			local shouldReset = false
-			if state.lastContent[bufnr] then
-				local startLine = math.max(1, currentLine - state.config.areaSearch)
-				local endLine = math.min(#lines, currentLine + state.config.areaSearch)
-
-				for i = startLine, endLine do
-					if i ~= currentLine and state.lastContent[bufnr][i] ~= lines[i] then
-						shouldReset = true
-						break
-					end
-				end
-
-				if not shouldReset then
-					for i = 1, #lines, state.config.spreadSearch do
-						if i ~= currentLine and state.lastContent[bufnr][i] ~= lines[i] then
-							shouldReset = true
-							break
-						end
-					end
-				end
-			end
-
-			if shouldReset then
-				M.reset()
-			end
-
-			state.lastContent[bufnr] = lines
-		end, 100)
 	end,
 })
 
