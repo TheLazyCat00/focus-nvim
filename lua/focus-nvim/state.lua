@@ -1,13 +1,13 @@
 --- @class FocusState
---- @field config FocusConfig | nil Plugin configuration, set by setup()
---- @field lastLine integer | nil The last cursor line seen by foldAround()
---- @field diags vim.Diagnostic[] | nil Diagnostics for the current buffer
---- @field lastContent table<integer, string[]> Map of bufnr to last known buffer lines
+--- @field ns integer?
+--- @field diagsByBuf table<integer, vim.Diagnostic[]>
+--- @field pendingUpdate table<integer, boolean>
+--- @field config FocusConfig?
 
 --- @type FocusState
 return {
-	config = nil,
-	lastLine = nil,
-	diags = nil,
-	lastContent = {},
+	ns            = nil,
+	diagsByBuf    = {},
+	pendingUpdate = {},
+	config        = nil,
 }

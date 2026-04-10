@@ -6,6 +6,7 @@
 --- @return string formatted The formatted diagnostic string, or "" if none
 local function defaultFormat(errors, warns, infos, hints)
 	local segments = {}
+
 	if errors > 0 then
 		table.insert(segments, "Errors: " .. errors)
 	end
@@ -18,35 +19,62 @@ local function defaultFormat(errors, warns, infos, hints)
 	if hints > 0 then
 		table.insert(segments, "Hints: " .. hints)
 	end
-	local result = ""
-	for _, segment in ipairs(segments) do
-		if result == "" then
-			result = segment
-			goto continue
-		end
-		result = result .. ", " .. segment
-		::continue::
-	end
+
+	local result = table.concat(segments, ", ")
 	if result == "" then
 		return ""
 	end
-	local virtualText = vim.diagnostic.config().virtual_text or {}
-	result = string.rep(" ", virtualText.spacing) .. virtualText.prefix .. " " .. result
-	return result
+
+	local vt = vim.diagnostic.config().virtual_text or {}
+	local spacing = vt.spacing or 0
+	local prefix = vt.prefix or ""
+
+	if prefix ~= "" then
+		return string.rep(" ", spacing) .. prefix .. " " .. result
+	end
+	return string.rep(" ", spacing) .. result
 end
 
+--- @class FocusFoldConfig
+--- @field level? integer
+--- @field levelStart? integer
+--- @field open? string
+--- @field close? string
+--- @field startClosed? boolean
+
+--- @class FocusDiagnosticsConfig
+--- @field enabled boolean
+--- @field debounceMs integer
+--- @field callback fun(errors: integer, warns: integer, infos: integer, hints: integer): string
+--- @field hlGroup string
+
 --- @class FocusConfig
---- @field languages table<string, string> Map of filetype to treesitter query string
---- @field fallback string Treesitter query string used when filetype has no entry in languages
---- @field callback fun(errors: integer, warns: integer, infos: integer, hints: integer): string Formats fold diagnostic virtual text
---- @field hlGroup string Highlight group for fold diagnostic virtual text
+--- @field languages table<string, string|table> Map of filetype -> folds query string OR list of node types
+--- @field fallback string|table Fallback folds query string OR list of node types
+--- @field fold FocusFoldConfig
+--- @field diagnostics FocusDiagnosticsConfig
 
 --- @type FocusConfig
 return {
 	languages = {
-		["lua"] = "(function_declaration) @func"
+		lua = { "function_declaration", "function_definition" },
 	},
-	fallback = "(function_definition) @func",
-	callback = defaultFormat,
-	hlGroup = "NonText",
+	fallback = { "function_definition" },
+
+	fold = {
+		level = 0,
+		levelStart = 0,
+		startClosed = true,
+
+		-- Cursor-centric behavior (set open="" if you want manual-open-only)
+		open = "",
+		close = "all",
+	},
+
+	diagnostics = {
+		enabled = true,
+		debounceMs = 80,
+		callback = defaultFormat,
+		hlGroup = "NonText",
+	},
 }
