@@ -11,7 +11,8 @@ local defaults = require("focus-nvim.defaults")
 --- @field ns integer?
 --- @field diagsByBuf table<integer, vim.Diagnostic[]>
 --- @field diagPrefixCache table<integer, FocusDiagPrefix>
---- @field pendingUpdate table<string, boolean>
+--- @field pendingUpdate table<string, boolean> Debounce flags (keyed by "bufnr:winid")
+--- @field predicatesRegistered boolean
 --- @field config FocusConfig
 
 --- @type FocusState
@@ -20,5 +21,6 @@ return {
 	diagsByBuf = {},
 	diagPrefixCache = {},
 	pendingUpdate = {},
+	predicatesRegistered = false,
 	config = defaults,
 }

@@ -1,5 +1,3 @@
--- lua/focus-nvim/init.lua
-
 local defaults = require("focus-nvim.defaults")
 local state = require("focus-nvim.state")
 
@@ -30,6 +28,59 @@ local function windowsForBuf(bufnr)
 	return wins
 end
 
+-- Register a predicate that filters out nodes that are (or contain) Tree-sitter parse errors.
+-- This avoids folding "broken" syntax while you are actively editing.
+local function registerPredicates()
+	if state.predicatesRegistered then
+		return
+	end
+	state.predicatesRegistered = true
+
+	local ok = pcall(vim.treesitter.query.add_predicate, "focus-nvim-no-error?", function(match, _, _, predicate, _)
+		local captureId = predicate[2]
+		local nodes = match[captureId]
+
+		if nodes == nil then
+			return true
+		end
+
+		-- match[captureId] is usually a list of nodes
+		if nodes.id ~= nil then
+			nodes = { nodes }
+		end
+
+		for _, node in ipairs(nodes) do
+			-- has_error() is true if the node is an error node OR contains one
+			-- missing() catches recovery nodes
+			if node:has_error() or node:missing() then
+				return false
+			end
+		end
+
+		return true
+	end, { force = true })
+
+	-- Older Neovim versions / LuaLS stubs might not accept { force = true }
+	if not ok then
+		pcall(vim.treesitter.query.add_predicate, "focus-nvim-no-error?", function(match, _, _, predicate, _)
+			local captureId = predicate[2]
+			local nodes = match[captureId]
+			if nodes == nil then
+				return true
+			end
+			if nodes.id ~= nil then
+				nodes = { nodes }
+			end
+			for _, node in ipairs(nodes) do
+				if node:has_error() or node:missing() then
+					return false
+				end
+			end
+			return true
+		end)
+	end
+end
+
 ---@param lang string
 ---@param queryText string
 ---@return boolean ok
@@ -41,6 +92,8 @@ end
 ---@param spec any
 ---@return string? queryText
 local function normalizeFoldsQuery(lang, spec)
+	registerPredicates()
+
 	if type(spec) == "table" then
 		---@type string[]
 		local validNodes = {}
@@ -58,25 +111,40 @@ local function normalizeFoldsQuery(lang, spec)
 			return nil
 		end
 
-		local out = { "[" }
+		-- Single pattern with directives inside it (safe + standard query style)
+		local out = { "(" }
+		table.insert(out, "\t[")
 		for _, node in ipairs(validNodes) do
-			table.insert(out, ("\t(%s)"):format(node))
+			table.insert(out, ("\t\t(%s)"):format(node))
 		end
-		table.insert(out, "] @fold")
-		table.insert(out, "(#trim! @fold)")
+		table.insert(out, "\t] @fold")
+		table.insert(out, "\t(#trim! @fold)")
+		table.insert(out, "\t(#focus-nvim-no-error? @fold)")
+		table.insert(out, ")")
+
 		return table.concat(out, "\n")
 	end
 
 	if type(spec) == "string" then
 		local q = spec
 
+		-- legacy: "[ (node) (node) ]" (no captures) -> convert to @fold pattern
 		if not q:find("@fold") then
-			-- legacy: "[ (node) (node) ]" (no captures)
 			if q:match("%[") and q:match("%]") and not q:match("@[%w%._-]+") then
-				q = q .. " @fold\n(#trim! @fold)"
+				-- Wrap it so we can attach directives safely
+				q = table.concat({
+					"(",
+					q .. " @fold",
+					"\t(#trim! @fold)",
+					"\t(#focus-nvim-no-error? @fold)",
+					")",
+				}, "\n")
 			end
 		end
 
+		-- If user provides a raw query string with @fold, we validate it as-is.
+		-- Note: we do NOT attempt to inject our predicate into arbitrary query strings,
+		-- because doing it correctly requires rewriting each pattern.
 		if not q:find("@fold") then
 			return nil
 		end
@@ -99,7 +167,7 @@ local function applyFoldsQueryForFt(ft)
 	end
 
 	local cfg = state.config
-	local spec = (cfg.languages and cfg.languages[ft]) or cfg.fallback
+	local spec = cfg.languages[ft] or cfg.fallback
 
 	-- Always override folds query:
 	-- If nothing validates for this language => "", so runtime folds.scm never applies for this lang.
@@ -109,8 +177,6 @@ end
 
 local function applyGlobalFoldOptions()
 	local f = state.config.fold
-
-	-- Global options (do NOT use vim.wo)
 	vim.o.foldlevelstart = f.levelStart
 	vim.o.foldopen = f.open
 	vim.o.foldclose = f.close
@@ -127,8 +193,6 @@ local function enableBuiltinTsFolding(winid)
 		vim.wo.foldlevel = f.level
 	end)
 end
-
--- Diagnostic prefix cache (per buffer). Rebuilt on DiagnosticChanged and lazily if line count changes.
 
 ---@param bufnr integer
 ---@return FocusDiagPrefix
@@ -246,7 +310,7 @@ local function updateFoldDiagnostics(bufnr, winid)
 	local rangeCounts = getRangeCounts(bufnr)
 
 	vim.api.nvim_win_call(winid, function()
-		-- Clear only visible lines (big win vs clearing entire buffer).
+		-- Clear only visible lines (performance).
 		vim.api.nvim_buf_clear_namespace(bufnr, ns, math.max(top - 1, 0), bot)
 
 		local globalDiagCfg = vim.diagnostic.config() or {}
@@ -343,6 +407,7 @@ end
 --- @param opts FocusConfig?
 function M.setup(opts)
 	state.config = vim.tbl_deep_extend("force", defaults, opts or {})
+	registerPredicates()
 	applyGlobalFoldOptions()
 
 	local aug = vim.api.nvim_create_augroup("FocusNvim", { clear = true })
