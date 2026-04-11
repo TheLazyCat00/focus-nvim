@@ -1,3 +1,5 @@
+local defaults = require("focus-nvim.defaults")
+
 --- @class FocusDiagPrefix
 --- @field lineCount integer
 --- @field err integer[]
@@ -5,9 +7,8 @@
 --- @field info integer[]
 --- @field hint integer[]
 
-local defaults = require("focus-nvim.defaults")
-
 --- @class FocusState
+--- @field enabled boolean
 --- @field ns integer?
 --- @field diagsByBuf table<integer, vim.Diagnostic[]>
 --- @field diagPrefixCache table<integer, FocusDiagPrefix>
@@ -17,6 +18,7 @@ local defaults = require("focus-nvim.defaults")
 
 --- @type FocusState
 return {
+	enabled = true,
 	ns = nil,
 	diagsByBuf = {},
 	diagPrefixCache = {},

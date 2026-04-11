@@ -36,7 +36,7 @@ local function registerPredicates()
 	end
 	state.predicatesRegistered = true
 
-	local ok = pcall(vim.treesitter.query.add_predicate, "focus-nvim-no-error?", function(match, _, _, predicate, _)
+	local function pred(match, _, _, predicate, _)
 		local captureId = predicate[2]
 		local nodes = match[captureId]
 
@@ -44,7 +44,7 @@ local function registerPredicates()
 			return true
 		end
 
-		-- match[captureId] is usually a list of nodes
+		-- match[captureId] is usually a list of nodes, but can be a single node
 		if nodes.id ~= nil then
 			nodes = { nodes }
 		end
@@ -58,26 +58,11 @@ local function registerPredicates()
 		end
 
 		return true
-	end, { force = true })
+	end
 
-	-- Older Neovim versions / LuaLS stubs might not accept { force = true }
+	local ok = pcall(vim.treesitter.query.add_predicate, "focus-nvim-no-error?", pred, { force = true })
 	if not ok then
-		pcall(vim.treesitter.query.add_predicate, "focus-nvim-no-error?", function(match, _, _, predicate, _)
-			local captureId = predicate[2]
-			local nodes = match[captureId]
-			if nodes == nil then
-				return true
-			end
-			if nodes.id ~= nil then
-				nodes = { nodes }
-			end
-			for _, node in ipairs(nodes) do
-				if node:has_error() or node:missing() then
-					return false
-				end
-			end
-			return true
-		end)
+		pcall(vim.treesitter.query.add_predicate, "focus-nvim-no-error?", pred)
 	end
 end
 
@@ -111,7 +96,7 @@ local function normalizeFoldsQuery(lang, spec)
 			return nil
 		end
 
-		-- Single pattern with directives inside it (safe + standard query style)
+		-- Single pattern with directives inside it
 		local out = { "(" }
 		table.insert(out, "\t[")
 		for _, node in ipairs(validNodes) do
@@ -131,7 +116,6 @@ local function normalizeFoldsQuery(lang, spec)
 		-- legacy: "[ (node) (node) ]" (no captures) -> convert to @fold pattern
 		if not q:find("@fold") then
 			if q:match("%[") and q:match("%]") and not q:match("@[%w%._-]+") then
-				-- Wrap it so we can attach directives safely
 				q = table.concat({
 					"(",
 					q .. " @fold",
@@ -142,9 +126,8 @@ local function normalizeFoldsQuery(lang, spec)
 			end
 		end
 
-		-- If user provides a raw query string with @fold, we validate it as-is.
-		-- Note: we do NOT attempt to inject our predicate into arbitrary query strings,
-		-- because doing it correctly requires rewriting each pattern.
+		-- If user provides a raw query string with @fold, validate as-is.
+		-- We do not inject predicates into arbitrary query strings.
 		if not q:find("@fold") then
 			return nil
 		end
@@ -170,7 +153,7 @@ local function applyFoldsQueryForFt(ft)
 	local spec = cfg.languages[ft] or cfg.fallback
 
 	-- Always override folds query:
-	-- If nothing validates for this language => "", so runtime folds.scm never applies for this lang.
+	-- if nothing validates for this language => "", so runtime folds.scm never applies for this lang.
 	local q = normalizeFoldsQuery(lang, spec)
 	vim.treesitter.query.set(lang, "folds", q or "")
 end
@@ -183,8 +166,41 @@ local function applyGlobalFoldOptions()
 end
 
 ---@param winid integer
+local function savePrevFoldOptions(winid)
+	vim.api.nvim_win_call(winid, function()
+		if vim.w.focusNvimPrevFold then
+			return
+		end
+
+		vim.w.focusNvimPrevFold = {
+			foldmethod = vim.wo.foldmethod,
+			foldexpr = vim.wo.foldexpr,
+			foldenable = vim.wo.foldenable,
+			foldlevel = vim.wo.foldlevel,
+		}
+	end)
+end
+
+---@param winid integer
+local function restorePrevFoldOptions(winid)
+	vim.api.nvim_win_call(winid, function()
+		local prev = vim.w.focusNvimPrevFold
+		if not prev then
+			return
+		end
+
+		vim.wo.foldmethod = prev.foldmethod
+		vim.wo.foldexpr = prev.foldexpr
+		vim.wo.foldenable = prev.foldenable
+		vim.wo.foldlevel = prev.foldlevel
+	end)
+end
+
+---@param winid integer
 local function enableBuiltinTsFolding(winid)
 	local f = state.config.fold
+
+	savePrevFoldOptions(winid)
 
 	vim.api.nvim_win_call(winid, function()
 		vim.wo.foldmethod = "expr"
@@ -295,6 +311,9 @@ local function updateFoldDiagnostics(bufnr, winid)
 	if not dcfg.enabled then
 		return
 	end
+	if not state.enabled then
+		return
+	end
 	if not vim.api.nvim_buf_is_valid(bufnr) then
 		return
 	end
@@ -376,6 +395,9 @@ end
 ---@param bufnr integer
 ---@param winid integer
 local function scheduleDiagUpdate(bufnr, winid)
+	if not state.enabled then
+		return
+	end
 	if not (winid and vim.api.nvim_win_is_valid(winid)) then
 		return
 	end
@@ -390,10 +412,101 @@ local function scheduleDiagUpdate(bufnr, winid)
 
 	vim.defer_fn(function()
 		state.pendingUpdate[key] = nil
-		if vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid) then
+		if state.enabled and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid) then
 			updateFoldDiagnostics(bufnr, winid)
 		end
 	end, ms)
+end
+
+---@param bufnr integer
+---@param winid integer
+local function detachFromWindow(bufnr, winid)
+	if not vim.api.nvim_win_is_valid(winid) then
+		return
+	end
+
+	restorePrevFoldOptions(winid)
+
+	pcall(vim.api.nvim_win_call, winid, function()
+		if vim.w.focusNvimAttached then
+			vim.w.focusNvimAttached[bufnr] = nil
+		end
+	end)
+end
+
+local function clearAllDiagnosticsMarks()
+	local ns = ensureNamespace()
+	for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_valid(bufnr) then
+			pcall(vim.api.nvim_buf_clear_namespace, bufnr, ns, 0, -1)
+		end
+	end
+end
+
+---@param bufnr integer
+---@param winid integer
+local function attachToWindow(bufnr, winid)
+	if not state.enabled then
+		return
+	end
+	if not (vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid)) then
+		return
+	end
+	if not pcall(vim.treesitter.get_parser, bufnr) then
+		return
+	end
+
+	-- Avoid redoing the expensive parts repeatedly for the same window+buffer
+	vim.api.nvim_win_call(winid, function()
+		vim.w.focusNvimAttached = vim.w.focusNvimAttached or {}
+		if vim.w.focusNvimAttached[bufnr] then
+			return
+		end
+		vim.w.focusNvimAttached[bufnr] = true
+	end)
+
+	local ft = vim.bo[bufnr].filetype
+	applyFoldsQueryForFt(ft)
+	enableBuiltinTsFolding(winid)
+end
+
+function M.enable()
+	if state.enabled then
+		return
+	end
+	state.enabled = true
+	applyGlobalFoldOptions()
+
+	for _, winid in ipairs(vim.api.nvim_list_wins()) do
+		local bufnr = vim.api.nvim_win_get_buf(winid)
+		attachToWindow(bufnr, winid)
+	end
+end
+
+function M.disable()
+	if not state.enabled then
+		return
+	end
+	state.enabled = false
+
+	for _, winid in ipairs(vim.api.nvim_list_wins()) do
+		local bufnr = vim.api.nvim_win_get_buf(winid)
+		detachFromWindow(bufnr, winid)
+
+		pcall(vim.api.nvim_win_call, winid, function()
+			vim.cmd("silent! normal! zR")
+		end)
+	end
+
+	clearAllDiagnosticsMarks()
+end
+
+function M.toggle()
+	if state.enabled then
+		M.disable()
+	else
+		M.enable()
+	end
 end
 
 --- If on a closed fold, open it; otherwise perform normalAction.
@@ -412,28 +525,17 @@ function M.setup(opts)
 
 	local aug = vim.api.nvim_create_augroup("FocusNvim", { clear = true })
 
-	---@param bufnr integer
-	---@param winid integer
-	local function attachToWindow(bufnr, winid)
-		if not (vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid)) then
-			return
-		end
-		if not pcall(vim.treesitter.get_parser, bufnr) then
-			return
-		end
+	vim.api.nvim_create_user_command("FocusToggle", function()
+		M.toggle()
+	end, {})
 
-		-- Avoid redoing the expensive parts repeatedly for the same window+buffer
-		vim.w[winid].focusNvimAttached = vim.w[winid].focusNvimAttached or {}
-		if vim.w[winid].focusNvimAttached[bufnr] then
-			scheduleDiagUpdate(bufnr, winid)
-			return
-		end
-		vim.w[winid].focusNvimAttached[bufnr] = true
+	vim.api.nvim_create_user_command("FocusEnable", function()
+		M.enable()
+	end, {})
 
-		local ft = vim.bo[bufnr].filetype
-		applyFoldsQueryForFt(ft)
-		enableBuiltinTsFolding(winid)
-	end
+	vim.api.nvim_create_user_command("FocusDisable", function()
+		M.disable()
+	end, {})
 
 	vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
 		group = aug,
@@ -455,6 +557,7 @@ function M.setup(opts)
 		end,
 	})
 
+	-- Viewport-only updates
 	vim.api.nvim_create_autocmd("WinScrolled", {
 		group = aug,
 		callback = function(ev)
