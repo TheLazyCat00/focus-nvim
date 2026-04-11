@@ -128,13 +128,6 @@ local function enableBuiltinTsFolding(winid)
 	end)
 end
 
----@param winid integer
-local function recomputeFolds(winid)
-	vim.api.nvim_win_call(winid, function()
-		vim.cmd("silent! normal! zx")
-	end)
-end
-
 -- Diagnostic prefix cache (per buffer). Rebuilt on DiagnosticChanged and lazily if line count changes.
 
 ---@param bufnr integer
@@ -375,13 +368,6 @@ function M.setup(opts)
 		local ft = vim.bo[bufnr].filetype
 		applyFoldsQueryForFt(ft)
 		enableBuiltinTsFolding(winid)
-
-		vim.schedule(function()
-			if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_buf_is_valid(bufnr) then
-				recomputeFolds(winid)
-				scheduleDiagUpdate(bufnr, winid)
-			end
-		end)
 	end
 
 	vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
@@ -404,25 +390,10 @@ function M.setup(opts)
 		end,
 	})
 
-	vim.api.nvim_create_autocmd({ "CursorMoved", "WinScrolled" }, {
+	vim.api.nvim_create_autocmd("WinScrolled", {
 		group = aug,
 		callback = function(ev)
 			scheduleDiagUpdate(ev.buf, vim.api.nvim_get_current_win())
-		end,
-	})
-
-	vim.api.nvim_create_autocmd({ "BufWritePost", "InsertLeave" }, {
-		group = aug,
-		callback = function(ev)
-			local bufnr = ev.buf
-			local winid = vim.api.nvim_get_current_win()
-
-			vim.schedule(function()
-				if vim.api.nvim_win_is_valid(winid) and vim.api.nvim_buf_is_valid(bufnr) then
-					recomputeFolds(winid)
-					scheduleDiagUpdate(bufnr, winid)
-				end
-			end)
 		end,
 	})
 end
